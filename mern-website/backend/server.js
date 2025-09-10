@@ -1,18 +1,19 @@
+// server.js
 import express from "express";
 import multer from "multer";
 import fetch from "node-fetch";
 import cors from "cors";
 import fs from "fs";
 import FormData from "form-data";
-import { ClerkExpressRequireAuth } from "@clerk/clerk-sdk-node";  // ✅ Clerk middleware
+import dotenv from "dotenv";
+import { requireAuth } from "@clerk/express";  // ✅ Correct import
+
+// Load .env variables
+dotenv.config();
 
 const app = express();
 app.use(cors());
 const upload = multer({ dest: "uploads/" });
-
-// ✅ Protect all /api routes with Clerk
-// (you could also apply it only to specific routes)
-app.use("/api", ClerkExpressRequireAuth());
 
 // Proxy route to FastAPI
 app.post(
@@ -62,5 +63,5 @@ app.post(
 );
 
 app.listen(5000, () => {
-  console.log("Express server running on http://localhost:5000");
+  console.log("✅ Express server running on http://localhost:5000");
 });
