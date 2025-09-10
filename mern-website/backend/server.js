@@ -4,10 +4,15 @@ import fetch from "node-fetch";
 import cors from "cors";
 import fs from "fs";
 import FormData from "form-data";
+import { ClerkExpressRequireAuth } from "@clerk/clerk-sdk-node";  // ✅ Clerk middleware
 
 const app = express();
 app.use(cors());
 const upload = multer({ dest: "uploads/" });
+
+// ✅ Protect all /api routes with Clerk
+// (you could also apply it only to specific routes)
+app.use("/api", ClerkExpressRequireAuth());
 
 // Proxy route to FastAPI
 app.post(

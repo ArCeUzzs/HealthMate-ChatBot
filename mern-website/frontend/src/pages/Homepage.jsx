@@ -534,8 +534,8 @@ const Homepage = () => {
           )}
 
           {/* Disclaimer */}
-          <div className="mt-12 text-center text-gray-500 text-sm">
-            <p className="mb-2">
+          <div className="text-center text-gray-500 text-sm">
+            <p className="mb-1">
               ⚠️ This tool is for informational purposes only and should not
               replace professional medical advice.
             </p>
