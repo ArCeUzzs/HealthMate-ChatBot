@@ -28,12 +28,14 @@ from elevenlabs import ElevenLabs, VoiceSettings
 # Initialize the ElevenLabs client
 client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-def text_to_speech_with_elevenlabs(input_text, output_filepath=None, voice_id="JBFqnCBsd6RMkjVDRZzb", retries=3, delay=2, folder="outputs/voices"):
+# Add a language parameter
+def text_to_speech_with_elevenlabs(input_text, language_code, output_filepath=None, voice_id="6JsmTroalVewG1gA6Jmw", retries=3, delay=2, folder="outputs/voices"):
     """
     Convert text to speech using ElevenLabs with retries and metadata.
 
     Args:
         input_text (str): Text to convert to speech.
+        language_code (str): The language code for the output speech (e.g., 'en', 'fr').
         output_filepath (str, optional): Path to save the MP3 file.
         voice_id (str, optional): ID of the voice to use. Default is "JBFqnCBsd6RMkjVDRZzb".
         retries (int, optional): Number of retry attempts.
@@ -56,10 +58,12 @@ def text_to_speech_with_elevenlabs(input_text, output_filepath=None, voice_id="J
         try:
             # Convert text to speech
             audio = client.text_to_speech.convert(
-                voice_id="56AoDkrOh6qfVPDXZ7Pt",
-                output_format="mp3_22050_32",
+                # Use the detected language code here
+                model_id="eleven_multilingual_v2", # Use a multilingual model
+                # You can also set a specific voice based on the language
+                # For example: voice_id=get_multilingual_voice(language_code),
                 text=input_text,
-                model_id="eleven_turbo_v2",
+                voice_id="6JsmTroalVewG1gA6Jmw", # Or another suitable voice ID
                 voice_settings=VoiceSettings(
                     stability=0.0,
                     similarity_boost=1.0,
@@ -89,7 +93,6 @@ def text_to_speech_with_elevenlabs(input_text, output_filepath=None, voice_id="J
             time.sleep(delay)
 
     raise Exception("ElevenLabs TTS failed after multiple retries or produced empty files")
-
 
 
 # Example usage

@@ -44,6 +44,7 @@ If an image is provided, do not say 'In the image I see' but instead respond in 
 Do not respond as an AI model or use markdown formatting. 
 Your answer should mimic that of an actual doctor, empathetic and clear.
 Keep your answer concise, direct, and helpful, without preambles and prioritise preventive measures and lifestyle changes.
+Now, respond in the same language as the patient's query, which is detected as: {detected_language}.
 """
 
 app = FastAPI()
@@ -70,19 +71,20 @@ def cleanup_file(path: str):
         print(f"Error deleting file {path}: {e}")
 
 def process_inputs(audio_filepath: str, image_filepath: str = None):
-    # Step 1: Transcribe voice
-    speech_to_text_output = transcribe_with_groq(
+    # Step 1: Transcribe voice (returns text + detected language)
+    stt_text, detected_language = transcribe_with_groq(
         GROQ_API_KEY=os.environ.get("GROQ_API_KEY"),
         audio_filepath=audio_filepath,
         stt_model="whisper-large-v3"
     )
 
     # Step 2: Retrieve RAG context
-    docs = retriever.invoke(speech_to_text_output)
+    docs = retriever.invoke(stt_text)
     rag_context = "\n\n".join([d.page_content for d in docs]) if docs else ""
 
-    # Step 3: Build query
-    full_query = f"{system_prompt}\n\nPatient said: {speech_to_text_output}\n\nAdditional medical reference:\n{rag_context}"
+    # Step 3: Build query with system prompt
+    full_query = system_prompt.format(detected_language=detected_language)
+    full_query += f"\n\nPatient said: {stt_text}\n\nAdditional medical reference:\n{rag_context}"
 
     # Step 4: Doctor response
     if image_filepath:
@@ -97,11 +99,14 @@ def process_inputs(audio_filepath: str, image_filepath: str = None):
         resp = client.chat.completions.create(messages=messages, model="meta-llama/llama-4-maverick-17b-128e-instruct")
         doctor_response = resp.choices[0].message.content
 
-    # Step 5: TTS
-    voice_info = text_to_speech_with_elevenlabs(input_text=doctor_response)
+    # Step 5: TTS (multilingual)
+    voice_info = text_to_speech_with_elevenlabs(
+        input_text=doctor_response,
+        language_code=detected_language
+    )
     voice_file = voice_info["file"]
 
-    return speech_to_text_output, doctor_response, voice_file
+    return stt_text, doctor_response, voice_file, detected_language
 
 # ---- API Endpoints ----
 @app.post("/analyze")
@@ -122,7 +127,7 @@ async def analyze(
             f.write(await image.read())
 
     try:
-        stt_text, doctor_response, doctor_voice = process_inputs(audio_path, image_path)
+        stt_text, doctor_response, doctor_voice, detected_language = process_inputs(audio_path, image_path)
     finally:
         # schedule cleanup of temp input files
         if background_tasks:
@@ -133,6 +138,7 @@ async def analyze(
     return {
         "speech_to_text": stt_text,
         "doctor_response": doctor_response,
+        "detected_language": detected_language,
         "doctor_voice_url": f"http://127.0.0.1:8000/download-voice/{os.path.basename(doctor_voice)}"
     }
 
