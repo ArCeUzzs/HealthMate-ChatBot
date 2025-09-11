@@ -94,7 +94,7 @@ def process_inputs(audio_filepath: str, image_filepath: str = None):
     else:
         client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
         messages = [{"role": "user", "content": [{"type": "text", "text": full_query}]}]
-        resp = client.chat.completions.create(messages=messages, model="meta-llama/llama-4-scout-17b-16e-instruct")
+        resp = client.chat.completions.create(messages=messages, model="meta-llama/llama-4-maverick-17b-128e-instruct")
         doctor_response = resp.choices[0].message.content
 
     # Step 5: TTS
