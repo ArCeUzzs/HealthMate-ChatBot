@@ -279,9 +279,13 @@ const Homepage = () => {
         <div className="max-w-5xl mx-auto">
           {/* Header */}
           <div className="text-center mb-12">
-            <h1 className="text-5xl font-bold mb-4 text-gradient-to-r from-red-500 via-purple-500 to-blue-500 bg-clip-text ">
-              Medical Diagnosis Assistant
-            </h1>
+           <h1 className="text-3xl md:text-5xl font-extrabold mb-6 text-transparent bg-clip-text 
+               bg-gradient-to-r from-red-500 via-purple-500 to-blue-500 
+               drop-shadow-lg">
+  HealthMate - Your AI Medical Companion
+  
+</h1>
+
             <p className="text-gray-400 text-lg max-w-2xl mx-auto">
               Upload an image of your symptoms and describe them with your
               voice. Our AI will analyze and provide recommendations.

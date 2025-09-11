@@ -21,25 +21,76 @@ def text_to_speech_with_gtts_old(input_text, output_filepath):
 
 #Step1b: Setup Text to Speech–TTS–model with ElevenLabs
 import os
-from elevenlabs import ElevenLabs
+import uuid
+from datetime import datetime
+from elevenlabs import ElevenLabs, VoiceSettings
 
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
+# Initialize the ElevenLabs client
+client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-def text_to_speech_with_elevenlabs(input_text, output_filepath):
-    client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+def text_to_speech_with_elevenlabs(input_text, output_filepath=None, voice_id="JBFqnCBsd6RMkjVDRZzb", retries=3, delay=2, folder="outputs/voices"):
+    """
+    Convert text to speech using ElevenLabs with retries and metadata.
 
-    # Generate speech
-    audio = client.text_to_speech.convert(
-        voice_id="JBFqnCBsd6RMkjVDRZzb",  # Use the voice ID (e.g., "Aria", "Rachel", etc.)
-        model_id="eleven_turbo_v2",
-        output_format="mp3_22050_32",
-        text=input_text,
-    )
+    Args:
+        input_text (str): Text to convert to speech.
+        output_filepath (str, optional): Path to save the MP3 file.
+        voice_id (str, optional): ID of the voice to use. Default is "JBFqnCBsd6RMkjVDRZzb".
+        retries (int, optional): Number of retry attempts.
+        delay (int, optional): Delay between retries in seconds.
+        folder (str, optional): Directory to save output files.
 
-    # Save the audio bytes to file
-    with open(output_filepath, "wb") as f:
-        for chunk in audio:  # audio is a generator
-            f.write(chunk)
+    Returns:
+        dict: {
+            "file": str (file path),
+            "size": int (file size in bytes),
+            "created_at": str (ISO timestamp)
+        }
+    """
+    os.makedirs(folder, exist_ok=True)
+
+    if output_filepath is None:
+        output_filepath = os.path.join(folder, f"final_{uuid.uuid4().hex}.mp3")
+
+    for attempt in range(retries):
+        try:
+            # Convert text to speech
+            audio = client.text_to_speech.convert(
+                voice_id="56AoDkrOh6qfVPDXZ7Pt",
+                output_format="mp3_22050_32",
+                text=input_text,
+                model_id="eleven_turbo_v2",
+                voice_settings=VoiceSettings(
+                    stability=0.0,
+                    similarity_boost=1.0,
+                    style=0.0,
+                    use_speaker_boost=True
+                )
+            )
+
+            # Save the audio to file
+            with open(output_filepath, "wb") as f:
+                for chunk in audio:
+                    f.write(chunk)
+
+            # Check if the file is non-empty
+            if os.path.exists(output_filepath) and os.path.getsize(output_filepath) > 0:
+                return {
+                    "file": output_filepath,
+                    "size": os.path.getsize(output_filepath),
+                    "created_at": datetime.now().isoformat()
+                }
+
+            print(f"[ElevenLabs Warning] Empty file on attempt {attempt+1}")
+            time.sleep(delay)
+
+        except Exception as e:
+            print(f"[ElevenLabs Error] {e} — retry {attempt+1}/{retries}")
+            time.sleep(delay)
+
+    raise Exception("ElevenLabs TTS failed after multiple retries or produced empty files")
+
+
 
 # Example usage
 #text_to_speech_with_elevenlabs(input_text, "elevenlabs_testing.mp3")

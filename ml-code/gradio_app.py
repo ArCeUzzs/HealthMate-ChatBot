@@ -10,7 +10,7 @@ import uuid
 # ---- Import your pipeline functions ----
 from brain_of_bot import encode_image, analyze_image_with_query
 from voice_of_patient import transcribe_with_groq
-from voice_of_bot import text_to_speech_with_gtts
+from voice_of_bot import text_to_speech_with_elevenlabs
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -98,7 +98,7 @@ def process_inputs(audio_filepath: str, image_filepath: str = None):
         doctor_response = resp.choices[0].message.content
 
     # Step 5: TTS
-    voice_info = text_to_speech_with_gtts(input_text=doctor_response)
+    voice_info = text_to_speech_with_elevenlabs(input_text=doctor_response)
     voice_file = voice_info["file"]
 
     return speech_to_text_output, doctor_response, voice_file
