@@ -79,11 +79,11 @@ const Homepage = () => {
 
     const bufferLength = analyserRef.current.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
-    
+
     const draw = () => {
       animationFrameRef.current = requestAnimationFrame(draw);
       analyserRef.current.getByteFrequencyData(dataArray);
-      
+
       // Calculate average volume
       let sum = 0;
       for (let i = 0; i < bufferLength; i++) {
@@ -92,7 +92,7 @@ const Homepage = () => {
       const avg = sum / bufferLength;
       setAudioLevel(avg / 128); // Normalize to 0-1
     };
-    
+
     draw();
   };
 
@@ -103,7 +103,8 @@ const Homepage = () => {
       streamRef.current = stream;
 
       // Set up audio visualization
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      audioContextRef.current = new (window.AudioContext ||
+        window.webkitAudioContext)();
       analyserRef.current = audioContextRef.current.createAnalyser();
       const source = audioContextRef.current.createMediaStreamSource(stream);
       source.connect(analyserRef.current);
@@ -120,7 +121,7 @@ const Homepage = () => {
         const url = URL.createObjectURL(blob);
         setAudioBlob(blob);
         setAudioUrl(url);
-        
+
         // Clean up audio visualization
         if (animationFrameRef.current) {
           cancelAnimationFrame(animationFrameRef.current);
@@ -155,7 +156,7 @@ const Homepage = () => {
     } else {
       mediaRecorderRef.current.pause();
       setIsPaused(true);
-      
+
       // Pause visualization
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -171,7 +172,7 @@ const Homepage = () => {
       setIsRecording(false);
       setIsPaused(false);
       if (timerRef.current) clearInterval(timerRef.current);
-      
+
       // Clean up audio visualization
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -279,12 +280,13 @@ const Homepage = () => {
         <div className="max-w-5xl mx-auto">
           {/* Header */}
           <div className="text-center mb-12">
-           <h1 className="text-3xl md:text-5xl font-extrabold mb-6 text-transparent bg-clip-text 
+            <h1
+              className="text-3xl md:text-5xl font-extrabold mb-6 text-transparent bg-clip-text 
                bg-gradient-to-r from-red-500 via-purple-500 to-blue-500 
-               drop-shadow-lg">
-  HealthMate - Your AI Medical Companion
-  
-</h1>
+               drop-shadow-lg"
+            >
+              HealthMate - Your AI Medical Companion
+            </h1>
 
             <p className="text-gray-400 text-lg max-w-2xl mx-auto">
               Upload an image of your symptoms and describe them with your
@@ -374,8 +376,10 @@ const Homepage = () => {
                             key={i}
                             className="w-2 bg-green-500 rounded-full transition-all duration-150"
                             style={{
-                              height: `${10 + (audioLevel * 40) * Math.sin(i / 2)}px`,
-                              opacity: 0.4 + (audioLevel * 0.6),
+                              height: `${
+                                10 + audioLevel * 40 * Math.sin(i / 2)
+                              }px`,
+                              opacity: 0.4 + audioLevel * 0.6,
                             }}
                           />
                         ))}
@@ -415,7 +419,14 @@ const Homepage = () => {
 
                         <button
                           onClick={removeAudio}
-                          className="flex items-center justify-center w-16 h-16 rounded-full bg-gray-700 hover:bg-gray-800 text-white transition-all duration-300 shadow-lg"
+                          disabled={isAnalyzing} // ✅ Disable when analyzing
+                          className={`flex items-center justify-center w-16 h-16 rounded-full 
+    ${
+      isAnalyzing
+        ? "bg-gray-500 cursor-not-allowed opacity-50"
+        : "bg-gray-700 hover:bg-gray-800"
+    } 
+    text-white transition-all duration-300 shadow-lg`}
                         >
                           🗑️
                         </button>
