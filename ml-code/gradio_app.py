@@ -156,3 +156,186 @@ async def download_voice(filename: str, background_tasks: BackgroundTasks):
 
 
 # to run: uvicorn gradio_app:app --reload
+
+# from dotenv import load_dotenv
+# load_dotenv()
+
+# from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Form
+# from fastapi.responses import FileResponse, JSONResponse
+# from fastapi.middleware.cors import CORSMiddleware
+# import os
+# import uuid
+# from collections import defaultdict
+
+# # ---- Import your pipeline functions ----
+# from brain_of_bot import encode_image, analyze_image_with_query
+# from voice_of_patient import transcribe_with_groq
+# from voice_of_bot import text_to_speech_with_elevenlabs
+
+# from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_community.vectorstores import FAISS
+# from groq import Groq
+
+# # ---- Load FAISS vector DB ----
+# DB_FAISS_PATH = "vectorstore/db_faiss"
+# embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+# db = FAISS.load_local(DB_FAISS_PATH, embedding_model, allow_dangerous_deserialization=True)
+# retriever = db.as_retriever(search_kwargs={"k": 3})
+
+# # ---- System Prompt ----
+# SYSTEM_PROMPT = """You have to act as a professional doctor and give your response as such, I know you are not but this is for learning purpose.
+# With what you see or hear, try to give your best possible medical opinion.
+# Do you find anything wrong medically? If you make a differential, suggest some remedies for them.
+# Do not add any numbers or special characters in your response.
+
+# Try to give names of a few possible diseases, illnesses, or conditions that it could be,
+# but always clarify that this is not a confirmed diagnosis.
+
+# If relevant, suggest simple over-the-counter medicines or herbal remedies, but always advise the patient to consult a real doctor before taking any medicine.
+
+# Offer preventive measures, precautions, mild treatments, or lifestyle changes if possible.
+# If there is a risk of emergency, advise immediate medical attention and give first-aid advice if needed.
+# If mental health issues are suspected, provide supportive advice and encourage them to seek professional help.
+
+# Respond in such a way that a normal person can understand.
+# Keep your response in one long paragraph.
+# Always answer as if you are speaking directly to a patient.
+
+# If an image is provided, do not say 'In the image I see' but instead respond in a way that a doctor would, like 'Based on the symptoms and visual information provided'.
+# Do not respond as an AI model or use markdown formatting.
+# Your answer should mimic that of an actual doctor, empathetic and clear.
+# Keep your answer concise, direct, and helpful, without preambles and prioritise preventive measures and lifestyle changes.
+# Now, respond in the same language as the patient's query, which is detected as: {detected_language}.
+# """
+
+# # ---- FastAPI app ----
+# app = FastAPI()
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # Ensure directories exist
+# os.makedirs("outputs/voices", exist_ok=True)
+# os.makedirs("temp", exist_ok=True)
+
+# # ---- Conversation Memory (per conversation_id) ----
+# conversations = defaultdict(list)
+
+# # ---- Helper Functions ----
+# def cleanup_file(path: str):
+#     try:
+#         if os.path.exists(path):
+#             os.remove(path)
+#             print(f"Deleted: {path}")
+#     except Exception as e:
+#         print(f"Error deleting file {path}: {e}")
+
+# def process_inputs(audio_filepath: str, image_filepath: str = None, conversation_id: str = "default"):
+#     # Step 1: Transcribe voice
+#     stt_text, detected_language = transcribe_with_groq(
+#         GROQ_API_KEY=os.environ.get("GROQ_API_KEY"),
+#         audio_filepath=audio_filepath,
+#         stt_model="whisper-large-v3"
+#     )
+
+#     # Step 2: Retrieve RAG context
+#     docs = retriever.invoke(stt_text)
+#     rag_context = "\n\n".join([d.page_content for d in docs]) if docs else ""
+
+#     # Step 3: Conversation memory
+#     messages = conversations[conversation_id]
+
+#     # Inject system prompt only at the start
+#     if not messages:
+#         messages.append({
+#             "role": "system",
+#             "content": SYSTEM_PROMPT.format(detected_language=detected_language)
+#         })
+
+#     # Add patient's input
+#     messages.append({"role": "user", "content": f"Patient said: {stt_text}\n\nReference:\n{rag_context}"})
+
+#     # Step 4: Doctor response
+#     if image_filepath:
+#         # Handle vision model
+#         doctor_response = analyze_image_with_query(
+#             query=stt_text + "\n\n" + rag_context,
+#             encoded_image=encode_image(image_filepath),
+#             model="meta-llama/llama-4-maverick-17b-128e-instruct"
+#         )
+#     else:
+#         client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+#         resp = client.chat.completions.create(
+#             messages=messages,
+#             model="meta-llama/llama-4-maverick-17b-128e-instruct"
+#         )
+#         doctor_response = resp.choices[0].message.content
+
+#     # Add doctor response to conversation
+#     messages.append({"role": "assistant", "content": doctor_response})
+
+#     # Step 5: TTS (multilingual)
+#     voice_info = text_to_speech_with_elevenlabs(
+#         input_text=doctor_response,
+#         language_code=detected_language
+#     )
+#     voice_file = voice_info["file"]
+
+#     return stt_text, doctor_response, voice_file, detected_language
+
+# # ---- API Endpoints ----
+# @app.post("/analyze")
+# async def analyze(
+#     audio: UploadFile = File(...),
+#     image: UploadFile = File(None),
+#     conversation_id: str = Form("default"),
+#     background_tasks: BackgroundTasks = None
+# ):
+#     # Save uploaded files temporarily
+#     audio_path = os.path.join("temp", f"temp_{uuid.uuid4().hex}.mp3")
+#     with open(audio_path, "wb") as f:
+#         f.write(await audio.read())
+
+#     image_path = None
+#     if image:
+#         image_path = os.path.join("temp", f"temp_{uuid.uuid4().hex}.jpg")
+#         with open(image_path, "wb") as f:
+#             f.write(await image.read())
+
+#     try:
+#         stt_text, doctor_response, doctor_voice, detected_language = process_inputs(audio_path, image_path, conversation_id)
+#     finally:
+#         if background_tasks:
+#             background_tasks.add_task(cleanup_file, audio_path)
+#             if image_path:
+#                 background_tasks.add_task(cleanup_file, image_path)
+
+#     return {
+#         "speech_to_text": stt_text,
+#         "doctor_response": doctor_response,
+#         "detected_language": detected_language,
+#         "conversation_id": conversation_id,
+#         "doctor_voice_url": f"http://127.0.0.1:8000/download-voice/{os.path.basename(doctor_voice)}"
+#     }
+
+# @app.get("/download-voice/{filename}")
+# async def download_voice(filename: str, background_tasks: BackgroundTasks):
+#     file_path = os.path.join("outputs", "voices", filename)
+#     if os.path.exists(file_path):
+#         return FileResponse(
+#             file_path,
+#             media_type="audio/mpeg",
+#             filename=filename,
+#             background=background_tasks.add_task(cleanup_file, file_path)
+#         )
+#     return JSONResponse(status_code=404, content={"error": "File not found"})
+
+# @app.post("/reset/{conversation_id}")
+# async def reset_conversation(conversation_id: str):
+#     if conversation_id in conversations:
+#         del conversations[conversation_id]
+#     return {"status": f"Conversation {conversation_id} cleared"}
