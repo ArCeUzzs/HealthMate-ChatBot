@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import { Play, Pause, CheckCircle, Mic, MicOff, Loader } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
+import "../App.css";  // <-- Import your CSS here
 
 export default function AnalysisPage() {
   const navigate = useNavigate();
@@ -15,7 +16,9 @@ export default function AnalysisPage() {
   } = location.state || {};
 
   // Keep conversation id in state for the session (not in localStorage)
-  const [conversationId, setConversationId] = useState(initialConversationId || null);
+  const [conversationId, setConversationId] = useState(
+    initialConversationId || null
+  );
 
   const [messages, setMessages] = useState(initialMessages || []);
   const [isRecording, setIsRecording] = useState(false);
@@ -25,6 +28,11 @@ export default function AnalysisPage() {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const [audioLevel, setAudioLevel] = useState(0);
+
+  // preview playback states
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const [previewPlayed, setPreviewPlayed] = useState(false); // must hear once before sending
 
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
@@ -44,6 +52,9 @@ export default function AnalysisPage() {
 
   const messagesEndRef = useRef(null);
 
+  // audio preview element ref (hidden audio used to play recorded blob)
+  const audioPreviewRef = useRef(null);
+
   // if user navigated here without result, redirect home
   useEffect(() => {
     if (!result) {
@@ -58,13 +69,22 @@ export default function AnalysisPage() {
   useEffect(() => {
     return () => {
       Object.values(waveSurferMap.current).forEach((ws) => {
-        try { ws.destroy(); } catch {}
+        try {
+          ws.destroy();
+        } catch {}
       });
       (createdBlobUrlsRef.current || []).forEach((u) => {
-        try { URL.revokeObjectURL(u); } catch {}
+        try {
+          URL.revokeObjectURL(u);
+        } catch {}
       });
+      if (previewUrl) {
+        try {
+          URL.revokeObjectURL(previewUrl);
+        } catch {}
+      }
     };
-  }, []);
+  }, [previewUrl]);
 
   // when messages change, scroll and init waves where containers exist
   useEffect(() => {
@@ -72,7 +92,11 @@ export default function AnalysisPage() {
 
     messages.forEach((m, idx) => {
       const assistantAudio = m.assistant_audio ?? m.doctor_voice_url ?? null;
-      if (m.role === "assistant" && assistantAudio && !waveSurferMap.current[idx]) {
+      if (
+        m.role === "assistant" &&
+        assistantAudio &&
+        !waveSurferMap.current[idx]
+      ) {
         const container = waveContainerRefs.current[idx];
         if (container) initWaveForMessage(idx, assistantAudio, container);
       }
@@ -82,7 +106,9 @@ export default function AnalysisPage() {
   const initWaveForMessage = (idx, src, containerEl) => {
     if (!containerEl) return;
     if (waveSurferMap.current[idx]) {
-      try { waveSurferMap.current[idx].destroy(); } catch {}
+      try {
+        waveSurferMap.current[idx].destroy();
+      } catch {}
     }
 
     const ws = WaveSurfer.create({
@@ -97,15 +123,21 @@ export default function AnalysisPage() {
     });
 
     waveReadyMap.current[idx] = false;
-    ws.on("ready", () => { waveReadyMap.current[idx] = true; });
-    ws.on("finish", () => { setPlayingIndex(null); });
+    ws.on("ready", () => {
+      waveReadyMap.current[idx] = true;
+    });
+    ws.on("finish", () => {
+      setPlayingIndex(null);
+    });
 
     try {
       ws.load(src);
       waveSurferMap.current[idx] = ws;
     } catch (e) {
       console.warn("WaveSurfer load failed for message", idx, e);
-      try { ws.destroy(); } catch {}
+      try {
+        ws.destroy();
+      } catch {}
       waveSurferMap.current[idx] = null;
     }
   };
@@ -120,7 +152,9 @@ export default function AnalysisPage() {
       }
     } else {
       if (waveSurferMap.current[idx]) {
-        try { waveSurferMap.current[idx].destroy(); } catch {}
+        try {
+          waveSurferMap.current[idx].destroy();
+        } catch {}
         waveSurferMap.current[idx] = null;
       }
       delete waveContainerRefs.current[idx];
@@ -137,7 +171,9 @@ export default function AnalysisPage() {
       } else {
         Object.entries(waveSurferMap.current).forEach(([k, inst]) => {
           if (inst && inst.isPlaying && inst.isPlaying() && k !== String(idx)) {
-            try { inst.pause(); } catch {}
+            try {
+              inst.pause();
+            } catch {}
           }
         });
         ws.play();
@@ -153,7 +189,9 @@ export default function AnalysisPage() {
           setPlayingIndex(null);
         } else {
           document.querySelectorAll("audio").forEach((a) => {
-            try { if (!a.paused) a.pause(); } catch {}
+            try {
+              if (!a.paused) a.pause();
+            } catch {}
           });
           audioEl.play();
           setPlayingIndex(idx);
@@ -184,7 +222,8 @@ export default function AnalysisPage() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      audioContextRef.current = new (window.AudioContext ||
+        window.webkitAudioContext)();
       analyserRef.current = audioContextRef.current.createAnalyser();
       const source = audioContextRef.current.createMediaStreamSource(stream);
       source.connect(analyserRef.current);
@@ -198,6 +237,17 @@ export default function AnalysisPage() {
       mediaRecorder.onstop = () => {
         const blob = new Blob(chunks, { type: "audio/wav" });
         setUserAudioBlob(blob);
+
+        // create preview URL and reset previewPlayed
+        try {
+          const url = URL.createObjectURL(blob);
+          setPreviewUrl(url);
+          createdBlobUrlsRef.current.push(url);
+          setPreviewPlayed(false);
+          setIsPreviewPlaying(false);
+        } catch (e) {
+          console.warn("Could not create preview URL", e);
+        }
       };
 
       mediaRecorder.start();
@@ -206,10 +256,15 @@ export default function AnalysisPage() {
       setRecordingTime(0);
 
       visualizeAudio();
-      timerRef.current = setInterval(() => setRecordingTime((p) => p + 1), 1000);
+      timerRef.current = setInterval(
+        () => setRecordingTime((p) => p + 1),
+        1000
+      );
     } catch (err) {
       console.error("microphone error:", err);
-      setError("Microphone access denied. Please enable microphone permissions.");
+      setError(
+        "Microphone access denied. Please enable microphone permissions."
+      );
     }
   };
 
@@ -222,7 +277,8 @@ export default function AnalysisPage() {
     } else {
       mediaRecorderRef.current.pause();
       setIsPaused(true);
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (animationFrameRef.current)
+        cancelAnimationFrame(animationFrameRef.current);
       setAudioLevel(0);
     }
   };
@@ -234,14 +290,63 @@ export default function AnalysisPage() {
     setIsRecording(false);
     setIsPaused(false);
     if (timerRef.current) clearInterval(timerRef.current);
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    if (animationFrameRef.current)
+      cancelAnimationFrame(animationFrameRef.current);
     setAudioLevel(0);
   };
 
   const scrollToBottom = () => {
     try {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      messagesEndRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
     } catch {}
+  };
+
+  // Play/pause preview of recorded audio
+  const togglePreviewPlay = () => {
+    const audio = audioPreviewRef.current;
+    if (!audio) return;
+    if (!isPreviewPlaying) {
+      // start playing; track end event to set previewPlayed
+      audio.play().catch((e) => console.warn("preview play failed", e));
+      setIsPreviewPlaying(true);
+      audio.onended = () => {
+        setIsPreviewPlaying(false);
+        setPreviewPlayed(true);
+      };
+    } else {
+      audio.pause();
+      setIsPreviewPlaying(false);
+    }
+  };
+
+  const removeAudio = () => {
+    // Stop preview audio if playing
+    if (audioPreviewRef.current && !audioPreviewRef.current.paused) {
+      audioPreviewRef.current.pause();
+    }
+
+    // Revoke preview URL
+    if (previewUrl) {
+      try {
+        URL.revokeObjectURL(previewUrl);
+        createdBlobUrlsRef.current = createdBlobUrlsRef.current.filter(
+          (u) => u !== previewUrl
+        );
+      } catch (err) {
+        console.warn("Failed to revoke preview URL:", err);
+      }
+    }
+
+    // Reset all preview-related state
+    setUserAudioBlob(null);
+    setRecordingTime(0);
+    setPreviewPlayed(false);
+    setIsPreviewPlaying(false);
+    setPreviewUrl("");
+    setError(""); // Optional: clear any leftover errors
   };
 
   // Send user audio follow-up to proxy which forwards to fastapi
@@ -250,45 +355,70 @@ export default function AnalysisPage() {
       setError("Record something before sending.");
       return;
     }
+
+    // if (!previewPlayed) {
+    //   setError(
+    //     "Please listen to your recorded reply at least once before sending."
+    //   );
+    //   return;
+    // }
+
     setIsSending(true);
     setError("");
+
     try {
       const formData = new FormData();
       formData.append("audio", userAudioBlob, "reply.wav");
-      if (conversationId) formData.append("conversation_id", conversationId);
+      if (conversationId) {
+        formData.append("conversation_id", conversationId);
+      }
 
-      // proxy endpoint
-      const resp = await fetch("http://localhost:5000/api/analyze", {
+      const resp = await fetch(`http://localhost:5000/api/analyze`, {
         method: "POST",
         body: formData,
       });
 
-      if (!resp.ok) throw new Error(`Server: ${resp.status}`);
+      if (!resp.ok) {
+        throw new Error(`Server responded with status ${resp.status}`);
+      }
+
       const data = await resp.json();
 
-      // update local conversation id if server returns one (it will)
       if (data.conversation_id) {
         setConversationId(data.conversation_id);
       }
 
-      if (data.messages && Array.isArray(data.messages)) {
+      if (Array.isArray(data.messages)) {
         setMessages(data.messages);
       } else {
-        // fallback local append
-        const userBlobUrl = URL.createObjectURL(userAudioBlob);
-        createdBlobUrlsRef.current.push(userBlobUrl);
+        // fallback: local append
+        const userBlobUrl = previewUrl || URL.createObjectURL(userAudioBlob);
+        if (!createdBlobUrlsRef.current.includes(userBlobUrl)) {
+          createdBlobUrlsRef.current.push(userBlobUrl);
+        }
+
         setMessages((cur) => [
           ...cur,
-          { role: "user", content: data.speech_to_text ?? data.user_text ?? "", user_audio: userBlobUrl },
-          { role: "assistant", content: data.doctor_response ?? "", assistant_audio: data.doctor_voice_url ?? null },
+          {
+            role: "user",
+            content: data.speech_to_text ?? data.user_text ?? "",
+            user_audio: userBlobUrl,
+          },
+          {
+            role: "assistant",
+            content: data.doctor_response ?? "",
+            assistant_audio: data.doctor_voice_url ?? null,
+          },
         ]);
       }
 
-      setUserAudioBlob(null);
-      setRecordingTime(0);
+      // Clean up preview & blob
+      removeAudio();
     } catch (err) {
-      console.error("send error:", err);
-      setError("Failed to send audio. Check server and try again.");
+      console.error("sendUserAudio error:", err);
+      setError(
+        "Failed to send audio. Please check your connection and try again."
+      );
     } finally {
       setIsSending(false);
     }
@@ -304,7 +434,9 @@ export default function AnalysisPage() {
     try {
       if (conversationId) {
         // use proxy to forward reset to FastAPI
-        await fetch(`http://localhost:5000/reset/${conversationId}`, { method: "POST" });
+        await fetch(`http://localhost:5000/reset/${conversationId}`, {
+          method: "POST",
+        });
       }
     } catch (e) {
       console.warn("reset failed", e);
@@ -317,7 +449,9 @@ export default function AnalysisPage() {
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
   };
 
   // render messages with audio + waveform container
@@ -333,7 +467,9 @@ export default function AnalysisPage() {
           <div className="text-sm text-gray-400 mb-1">You</div>
           <div className="bg-gray-800/60 p-3 rounded-lg text-gray-100 max-w-3xl">
             <div className="whitespace-pre-wrap">{content}</div>
-            {userAudio && <audio controls src={userAudio} className="w-full mt-3" />}
+            {userAudio && (
+              <audio controls src={userAudio} className="w-full mt-3" />
+            )}
           </div>
         </div>
       );
@@ -352,7 +488,15 @@ export default function AnalysisPage() {
                     onClick={() => togglePlayForIndex(idx)}
                     className="inline-flex items-center gap-2 px-3 py-1 bg-green-600 hover:bg-green-700 rounded-full text-white text-sm"
                   >
-                    {playingIndex === idx ? <><Pause className="h-4 w-4" /> Pause</> : <><Play className="h-4 w-4" /> Play</>}
+                    {playingIndex === idx ? (
+                      <>
+                        <Pause className="h-4 w-4" /> Pause
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-4 w-4" /> Play
+                      </>
+                    )}
                   </button>
                 </div>
 
@@ -381,14 +525,27 @@ export default function AnalysisPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={() => navigate(-1)} className="px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded-full text-sm">Back</button>
-            <button onClick={startNewConversation} className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-full text-sm">Start New</button>
+            <button
+              onClick={() => navigate(-1)}
+              className="px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded-full text-sm"
+            >
+              Back
+            </button>
+            <button
+              onClick={startNewConversation}
+              className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-full text-sm"
+            >
+              Start New
+            </button>
           </div>
         </div>
 
         {/* Chat history */}
-        <div className="space-y-3 max-h-[55vh] overflow-y-auto mb-4 px-1">
-          {messages && messages.length ? messages.map((m, i) => renderMessage(m, i)) : (
+       <div className="space-y-3 max-h-[55vh] overflow-y-auto mb-4 px-1 custom-scrollbar">
+
+          {messages && messages.length ? (
+            messages.map((m, i) => renderMessage(m, i))
+          ) : (
             <div className="text-gray-400">No conversation yet.</div>
           )}
           <div ref={messagesEndRef} />
@@ -404,25 +561,39 @@ export default function AnalysisPage() {
               <Mic className="h-5 w-5 text-green-400" />
               <div>
                 <div className="text-sm text-gray-300">Record your reply</div>
-                <div className="text-xs text-gray-400">Send follow-up voice messages to continue the conversation</div>
+                <div className="text-xs text-gray-400">
+                  Send follow-up voice messages to continue the conversation
+                </div>
               </div>
             </div>
-            <div className="text-sm text-gray-300">{formatTime(recordingTime)}</div>
+            <div className="text-sm text-gray-300">
+              {formatTime(recordingTime)}
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
+            
             {!isRecording && (
-              <button onClick={startRecording} className="w-12 h-12 rounded-full bg-green-600 hover:bg-green-700 flex items-center justify-center">
+              <button
+                onClick={startRecording}
+                className="w-12 h-12 rounded-full bg-green-600 hover:bg-green-700 flex items-center justify-center"
+              >
                 <Mic className="h-5 w-5 text-white" />
               </button>
             )}
 
             {isRecording && (
               <>
-                <button onClick={stopRecording} className="w-12 h-12 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center">
+                <button
+                  onClick={stopRecording}
+                  className="w-12 h-12 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center"
+                >
                   <MicOff className="h-5 w-5 text-white" />
                 </button>
-                <button onClick={pauseRecording} className="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center">
+                <button
+                  onClick={pauseRecording}
+                  className="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center"
+                >
                   {isPaused ? "▶" : "⏸"}
                 </button>
               </>
@@ -431,28 +602,92 @@ export default function AnalysisPage() {
             <div className="flex-1">
               <div className="h-8 flex items-center gap-1">
                 {[...Array(20)].map((_, i) => (
-                  <div key={i} style={{ width: 4, height: `${6 + audioLevel * 30 * Math.abs(Math.sin(i / 3))}px` }} className="bg-green-500 rounded" />
+                  <div
+                    key={i}
+                    style={{
+                      width: 4,
+                      height: `${
+                        6 + audioLevel * 30 * Math.abs(Math.sin(i / 3))
+                      }px`,
+                    }}
+                    className="bg-green-500 rounded"
+                  />
                 ))}
               </div>
             </div>
 
-            <div>
-              <button
-                onClick={sendUserAudio}
-                disabled={isSending || !userAudioBlob}
-                className={`px-4 py-2 rounded-lg ${isSending || !userAudioBlob ? "bg-gray-600 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}
-              >
-                {isSending ? <><Loader className="h-4 w-4 animate-spin inline mr-2" /> Sending...</> : "Send"}
-              </button>
+            <div className="flex flex-col items-end gap-2">
+              {/* Preview controls */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={togglePreviewPlay}
+                  disabled={!previewUrl || isSending}
+                  className={`px-3 py-2 rounded-full h-12 w-12 flex justify-center items-center ${
+                    !previewUrl
+                      ? "bg-gray-500 cursor-not-allowed opacity-50"
+                      : "bg-gray-700 hover:bg-gray-800"
+                  } text-white`}
+                >
+                  {isPreviewPlaying ? (
+                    <Pause className="h-6 w-6" />
+                  ) : (
+                    <Play className="h-6 w-6" />
+                  )}
+                </button>
+
+                <button>
+                  <button
+                    onClick={removeAudio}
+                    disabled={isSending}
+                    className={`flex items-center justify-center w-12 h-12 rounded-full ${
+                      isSending
+                        ? "bg-gray-500 cursor-not-allowed opacity-50"
+                        : "bg-gray-700 hover:bg-gray-800"
+                    } text-white transition-all duration-300 shadow-lg`}
+                  >
+                    🗑
+                  </button>
+                </button>
+
+                <button
+                  onClick={sendUserAudio}
+                  className={`px-4 py-2 rounded-lg ${
+                    isSending
+                      ? "bg-gray-600 cursor-not-allowed"
+                      : "bg-blue-600 hover:bg-blue-700"
+                  }`}
+                >
+                  {isSending ? (
+                    <>
+                      <Loader className="h-4 w-4 animate-spin inline mr-2" />{" "}
+                      Sending...
+                    </>
+                  ) : (
+                    "Send"
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 
+          {/* hidden audio element for preview playback */}
+          {previewUrl && (
+            <audio
+              ref={audioPreviewRef}
+              src={previewUrl}
+              style={{ display: "none" }}
+              onEnded={() => {
+                setIsPreviewPlaying(false);
+                setPreviewPlayed(true);
+              }}
+            />
+          )}
+          {/* 
           <div className="mt-4 text-sm text-gray-400">
             Conversation id: <span className="text-gray-200">{conversationId ?? "—"}</span>
-          </div>
+          </div> */}
         </div>
       </div>
-
     </div>
   );
 }
