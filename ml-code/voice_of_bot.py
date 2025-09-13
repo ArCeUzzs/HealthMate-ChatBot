@@ -29,7 +29,7 @@ from elevenlabs import ElevenLabs, VoiceSettings
 client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 # Add a language parameter
-def text_to_speech_with_elevenlabs(input_text, language_code, output_filepath=None, voice_id="6JsmTroalVewG1gA6Jmw", retries=3, delay=2, folder="outputs/voices"):
+def text_to_speech_with_elevenlabs(input_text, language_code, output_filepath=None, voice_id="1Z7Y8o9cvUeWq8oLKgMY", retries=3, delay=2, folder="outputs/voices"):
     """
     Convert text to speech using ElevenLabs with retries and metadata.
 
@@ -63,7 +63,7 @@ def text_to_speech_with_elevenlabs(input_text, language_code, output_filepath=No
                 # You can also set a specific voice based on the language
                 # For example: voice_id=get_multilingual_voice(language_code),
                 text=input_text,
-                voice_id="6JsmTroalVewG1gA6Jmw", # Or another suitable voice ID
+                voice_id="1Z7Y8o9cvUeWq8oLKgMY", # Or another suitable voice ID
                 voice_settings=VoiceSettings(
                     stability=0.0,
                     similarity_boost=1.0,

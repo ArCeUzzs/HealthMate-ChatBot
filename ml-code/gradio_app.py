@@ -361,7 +361,7 @@ from voice_of_bot import text_to_speech_with_elevenlabs
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from groq import Groq
+# from groq import Groq  # Remove unused import
 
 # ---- Load FAISS vector DB (keep as-is) ----
 DB_FAISS_PATH = "vectorstore/db_faiss"
@@ -483,7 +483,7 @@ def process_inputs(audio_filepath: str, image_filepath: str = None, conversation
         # already appended user above
         msgs.append({"role": "assistant", "content": assistant_text})
 
-    # 7) TTS for assistant reply
+    # 6) TTS for assistant reply
     assistant_audio_file = None
     assistant_audio_url = None
     try:
@@ -492,12 +492,18 @@ def process_inputs(audio_filepath: str, image_filepath: str = None, conversation
             language_code=detected_language
         )
         assistant_audio_file = voice_info["file"]
-        assistant_audio_url = f"http://127.0.0.1:8000/download-voice/{os.path.basename(assistant_audio_file)}"
+
+        # Make sure the file is moved into outputs/voices
+        final_path = os.path.join("outputs", "voices", os.path.basename(assistant_audio_file))
+        os.replace(assistant_audio_file, final_path)
+
+        assistant_audio_url = f"http://127.0.0.1:8000/download-voice/{os.path.basename(final_path)}"
         msgs[-1]["assistant_audio"] = assistant_audio_url
     except Exception as e:
         print("TTS error:", e)
 
     return stt_text, assistant_text, assistant_audio_file, detected_language, msgs
+
 # ---- Endpoints ----
 @app.post("/analyze")
 async def analyze(
@@ -541,11 +547,10 @@ async def analyze(
     }
 
 @app.get("/download-voice/{filename}")
-async def download_voice(filename: str, background_tasks: BackgroundTasks):
+async def download_voice(filename: str):
     file_path = os.path.join("outputs", "voices", filename)
     if os.path.exists(file_path):
-        # schedule cleanup after serving (optional)
-        background_tasks.add_task(cleanup_file, file_path)
+        # ✅ Do NOT delete immediately, let frontend handle caching
         return FileResponse(file_path, media_type="audio/mpeg", filename=filename)
     return JSONResponse(status_code=404, content={"error": "File not found"})
 

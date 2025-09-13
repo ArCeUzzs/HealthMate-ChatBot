@@ -1,9 +1,17 @@
 // AnalysisPage.jsx
 import React, { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
-import { Play, Pause, CheckCircle, Mic, MicOff, Loader, Plus } from "lucide-react";
+import {
+  Play,
+  Pause,
+  CheckCircle,
+  Mic,
+  MicOff,
+  Loader,
+  Plus,
+} from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
-import "../App.css";  // <-- Import your CSS here
+import "../App.css"; // <-- Import your CSS here
 
 export default function AnalysisPage() {
   const navigate = useNavigate();
@@ -30,7 +38,6 @@ export default function AnalysisPage() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [image, setImage] = useState(null);
 
-
   // preview playback states
   const [previewUrl, setPreviewUrl] = useState("");
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
@@ -42,6 +49,10 @@ export default function AnalysisPage() {
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
+  // Map of pre-fetched audio HTML elements by message idx
+const audioElementMap = useRef({});
+// Map of blob URLs created for fetched audio so we can revoke later
+const blobUrlMap = useRef({});
 
   // wavesurfer instances per assistant message index
   const waveSurferMap = useRef({});
@@ -63,88 +74,110 @@ export default function AnalysisPage() {
       navigate("/", { replace: true });
       return;
     }
-    setTimeout(() => scrollToBottom(), 200);
+    setTimeout(() => scrollToBottom(), 800);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // cleanup on unmount
-  useEffect(() => {
-    return () => {
-      Object.values(waveSurferMap.current).forEach((ws) => {
-        try {
-          ws.destroy();
-        } catch {}
-      });
-      (createdBlobUrlsRef.current || []).forEach((u) => {
-        try {
-          URL.revokeObjectURL(u);
-        } catch {}
-      });
-      if (previewUrl) {
-        try {
-          URL.revokeObjectURL(previewUrl);
-        } catch {}
-      }
-    };
-  }, [previewUrl]);
+useEffect(() => {
+  return () => {
+    // destroy wavesurfer instances
+    Object.values(waveSurferMap.current).forEach((ws) => {
+      try { ws.destroy(); } catch {}
+    });
+
+    // revoke blobs
+    Object.values(blobUrlMap.current).forEach((u) => {
+      try { URL.revokeObjectURL(u); } catch {}
+    });
+  };
+}, []);
 
   // when messages change, scroll and init waves where containers exist
-  useEffect(() => {
-    scrollToBottom();
-
-    messages.forEach((m, idx) => {
-      const assistantAudio = m.assistant_audio ?? m.doctor_voice_url ?? null;
-      if (
-        m.role === "assistant" &&
-        assistantAudio &&
-        !waveSurferMap.current[idx]
-      ) {
-        const container = waveContainerRefs.current[idx];
-        if (container) initWaveForMessage(idx, assistantAudio, container);
-      }
-    });
-  }, [messages]);
-
-  const initWaveForMessage = (idx, src, containerEl) => {
-    if (!containerEl) return;
-    if (waveSurferMap.current[idx]) {
-      try {
-        waveSurferMap.current[idx].destroy();
-      } catch {}
+useEffect(() => {
+  scrollToBottom();
+  messages.forEach((m, idx) => {
+    const assistantAudio = m.assistant_audio ?? m.doctor_voice_url ?? null;
+    if (m.role === "assistant" && assistantAudio) {
+      // prefetch blobUrl, then init wavesurfer using the blob URL
+      prefetchAssistantAudio(idx, assistantAudio)
+        .then((blobUrl) => {
+          const container = waveContainerRefs.current[idx];
+          if (container && !waveSurferMap.current[idx]) {
+            initWaveForMessage(idx, blobUrl ?? assistantAudio, container);
+          }
+        })
+        .catch(() => {});
     }
+  });
+}, [messages]);
+  // Prefetch audio URL -> blob -> create object URL & HTMLAudioElement
+// --- PREFETCH: fetch remote audio and create a blob URL (fast local src) ---
+const prefetchAssistantAudio = async (idx, url) => {
+  if (!url) return null;
+  // Already have blob url
+  if (blobUrlMap.current[idx]) return blobUrlMap.current[idx];
 
-    const ws = WaveSurfer.create({
-      container: containerEl,
-      waveColor: "#22c55e",
-      progressColor: "#10b981",
-      cursorColor: "#fff",
-      height: 56,
-      barWidth: 3,
-      responsive: true,
-      normalize: true,
-    });
+  try {
+    const resp = await fetch(url, { mode: "cors" });
+    if (!resp.ok) throw new Error("prefetch failed: " + resp.status);
+    const blob = await resp.blob();
 
-    waveReadyMap.current[idx] = false;
-    ws.on("ready", () => {
-      waveReadyMap.current[idx] = true;
-    });
-    ws.on("finish", () => {
-      setPlayingIndex(null);
-    });
+    const blobUrl = URL.createObjectURL(blob);
+    blobUrlMap.current[idx] = blobUrl;
+    return blobUrl;
+  } catch (e) {
+    console.warn("prefetchAssistantAudio failed for idx", idx, e);
+    return null;
+  }
+};
 
-    try {
-      ws.load(src);
-      waveSurferMap.current[idx] = ws;
-    } catch (e) {
-      console.warn("WaveSurfer load failed for message", idx, e);
-      try {
-        ws.destroy();
-      } catch {}
-      waveSurferMap.current[idx] = null;
-    }
-  };
+// --- INIT WAVESURFER: load the blob URL into wavesurfer (no separate audio element) ---
+const initWaveForMessage = async (idx, srcUrl, containerEl) => {
+  if (!containerEl) return;
+  // avoid recreating
+  if (waveSurferMap.current[idx]) return;
 
-   const handleImageChange = (e) => {
+  // Create WaveSurfer with a stable config
+  const ws = WaveSurfer.create({
+    container: containerEl,
+    waveColor: "#22c55e",
+    progressColor: "#10b981",
+    cursorColor: "#ffffff",
+    height: 56,
+    barWidth: 3,
+    responsive: true,
+    normalize: true,
+    // keep backend default (WebAudio) — it will create its own media element from the blob URL
+  });
+
+  waveReadyMap.current[idx] = false;
+
+  ws.on("ready", () => {
+    waveReadyMap.current[idx] = true;
+    // ready but do not autoplay — user toggles playback
+  });
+
+  ws.on("finish", () => {
+    setPlayingIndex(null);
+  });
+
+  ws.on("error", (err) => {
+    console.warn("WaveSurfer error idx", idx, err);
+  });
+
+  try {
+    // srcUrl should be a blob URL (prefetched). If not prefetched yet, use given srcUrl (remote) — still works.
+    ws.load(srcUrl);
+    waveSurferMap.current[idx] = ws;
+  } catch (e) {
+    console.warn("WaveSurfer load failed for message", idx, e);
+    try { ws.destroy(); } catch {}
+    waveSurferMap.current[idx] = null;
+  }
+};
+
+  const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 10 * 1024 * 1024) {
@@ -156,7 +189,7 @@ export default function AnalysisPage() {
         return;
       }
       setImage(file);
-      
+
       setError("");
     }
   };
@@ -181,44 +214,57 @@ export default function AnalysisPage() {
     }
   };
 
-  const togglePlayForIndex = (idx) => {
-    const ws = waveSurferMap.current[idx];
-    if (ws && waveReadyMap.current[idx]) {
-      if (ws.isPlaying()) {
-        ws.pause();
-        setPlayingIndex(null);
-      } else {
-        Object.entries(waveSurferMap.current).forEach(([k, inst]) => {
-          if (inst && inst.isPlaying && inst.isPlaying() && k !== String(idx)) {
-            try {
-              inst.pause();
-            } catch {}
-          }
-        });
-        ws.play();
-        setPlayingIndex(idx);
-      }
-    } else {
-      const container = waveContainerRefs.current[idx];
-      if (!container) return;
-      const audioEl = container.querySelector("audio");
-      if (audioEl) {
-        if (!audioEl.paused) {
-          audioEl.pause();
-          setPlayingIndex(null);
-        } else {
-          document.querySelectorAll("audio").forEach((a) => {
-            try {
-              if (!a.paused) a.pause();
-            } catch {}
-          });
-          audioEl.play();
-          setPlayingIndex(idx);
-          audioEl.onended = () => setPlayingIndex(null);
-        }
-      }
+// --- TOGGLE PLAY/PAUSE: control wavesurfer only (instant because src is a blob URL) ---
+const togglePlayForIndex = async (idx) => {
+  const ws = waveSurferMap.current[idx];
+
+  // If no wavesurfer for this idx, attempt to ensure it's created
+  if (!ws) {
+    const m = messages[idx];
+    const remoteSrc = m?.assistant_audio ?? m?.doctor_voice_url ?? null;
+    if (!remoteSrc) return;
+    // prefetch and init then return (user can click again)
+    const blobUrl = await prefetchAssistantAudio(idx, remoteSrc);
+    const container = waveContainerRefs.current[idx];
+    if (container) {
+      await initWaveForMessage(idx, blobUrl ?? remoteSrc, container);
     }
-  };
+    return;
+  }
+
+  // If ws exists but not yet ready, avoid trying to play until ready
+  if (!waveReadyMap.current[idx]) {
+    // Optionally: queue a one-time 'ready' action
+    ws.once && ws.once("ready", () => {
+      try {
+        if (ws.isPlaying()) ws.pause();
+        else ws.play();
+        setPlayingIndex(idx);
+      } catch (e) {}
+    });
+    return;
+  }
+
+  // Pause any other playing waves
+  Object.entries(waveSurferMap.current).forEach(([k, inst]) => {
+    if (k !== String(idx) && inst && inst.isPlaying && inst.isPlaying()) {
+      try { inst.pause(); } catch {}
+    }
+  });
+
+  // Toggle
+  if (ws.isPlaying()) {
+    ws.pause();
+    setPlayingIndex(null);
+  } else {
+    try {
+      ws.play();
+      setPlayingIndex(idx);
+    } catch (e) {
+      console.warn("ws.play failed", e);
+    }
+  }
+};
 
   // audio input visualizer
   const visualizeAudio = () => {
@@ -316,7 +362,8 @@ export default function AnalysisPage() {
 
   const scrollToBottom = () => {
     try {
-      messagesEndRef.current?.scrollIntoView({
+      window.scrollTo({
+        top: document.body.scrollHeight,  
         behavior: "smooth",
         block: "end",
       });
@@ -434,7 +481,6 @@ export default function AnalysisPage() {
       // Clean up preview & blob
       removeAudio();
       setImage(null);
-
     } catch (err) {
       console.error("sendUserAudio error:", err);
       setError(
@@ -477,10 +523,12 @@ export default function AnalysisPage() {
 
   // render messages with audio + waveform container
   const renderMessage = (msg, idx) => {
+    console.log(msg);
     const role = msg.role;
     const content = msg.content ?? msg.text ?? "";
     const userAudio = msg.user_audio ?? msg.local_user_audio ?? null;
-    const assistantAudio = msg.assistant_audio ?? msg.doctor_voice_url ?? null;
+    const assistantAudio = msg.assistant_audio;
+    console.log(assistantAudio);
 
     if (role === "user") {
       return (
@@ -522,10 +570,11 @@ export default function AnalysisPage() {
                 </div>
 
                 <div className="bg-gray-800/60 rounded-md p-2">
-                  <div ref={attachWaveContainer(idx)} className="w-full h-14">
-                    {/* fallback audio tag */}
-                    <audio controls src={assistantAudio} className="w-full" />
-                  </div>
+                  {/* WaveSurfer waveform container */}
+                  <div ref={attachWaveContainer(idx)} className="w-full h-14" />
+
+                  {/* Fallback if WaveSurfer fails */}
+                  
                 </div>
               </>
             )}
@@ -537,7 +586,7 @@ export default function AnalysisPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white py-10 px-4">
+    <div className="min-h-screen bg-black text-white py-10 px-4 ">
       <div className="max-w-4xl mx-auto bg-gray-900/70 rounded-xl p-6 sm:p-8 border border-green-500 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -548,22 +597,16 @@ export default function AnalysisPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => navigate(-1)}
-              className="px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded-full text-sm"
+              className="px-3 py-1 bg-red-800 hover:bg-red-700 rounded-full text-sm cursor-pointer"
             >
-              Back
+              X
             </button>
-            <button
-              onClick={startNewConversation}
-              className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-full text-sm"
-            >
-              Start New
-            </button>
+          
           </div>
         </div>
 
         {/* Chat history */}
-       <div className="space-y-3 max-h-[55vh] overflow-y-auto mb-4 px-1 custom-scrollbar">
-
+        <div className="space-y-3 max-h-[55vh] overflow-y-auto mb-4 px-1 custom-scrollbar">
           {messages && messages.length ? (
             messages.map((m, i) => renderMessage(m, i))
           ) : (
@@ -580,7 +623,9 @@ export default function AnalysisPage() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div>
-                <div className="text-sm text-gray-300">Continue your conversation</div>
+                <div className="text-sm text-gray-300">
+                  Continue your conversation
+                </div>
               </div>
             </div>
             <div className="text-sm text-gray-300">
@@ -589,40 +634,39 @@ export default function AnalysisPage() {
           </div>
 
           <div className="flex items-center gap-3">
-{/* Image Upload Button */}
-{!image && (
-  <label className="relative flex items-center justify-center w-12 h-12 rounded-lg cursor-pointer hover:border-green-500 transition border border-gray-600">
-    {/* Plus icon */}
-    <Plus className="w-6 h-6 text-gray-400" />
+            {/* Image Upload Button */}
+            {!image && (
+              <label className="relative flex items-center justify-center w-12 h-12 rounded-lg cursor-pointer hover:border-green-500 transition border border-gray-600">
+                {/* Plus icon */}
+                <Plus className="w-6 h-6 text-gray-400" />
 
-    {/* Hidden file input */}
-    <input
-      type="file"
-      accept="image/*"
-      onChange={handleImageChange}
-      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-    />
-  </label>
-)}
+                {/* Hidden file input */}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+              </label>
+            )}
 
-{/* If image is added, show a small preview instead of + icon */}
-{image && (
-  <div className="relative w-12 h-12">
-    <img
-      src={URL.createObjectURL(image)}
-      alt="Preview"
-      className="w-12 h-12 rounded-lg object-cover"
-    />
-    {/* Remove button */}
-    <button
-      onClick={() => setImage(null)}
-      className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-2 text-xs"
-    >
-      ✕
-    </button>
-  </div>
-)}
-
+            {/* If image is added, show a small preview instead of + icon */}
+            {image && (
+              <div className="relative w-12 h-12">
+                <img
+                  src={URL.createObjectURL(image)}
+                  alt="Preview"
+                  className="w-12 h-12 rounded-lg object-cover"
+                />
+                {/* Remove button */}
+                <button
+                  onClick={() => setImage(null)}
+                  className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-2 text-xs"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             {!isRecording && (
               <button
@@ -733,11 +777,16 @@ export default function AnalysisPage() {
               }}
             />
           )}
-          {/* 
-          <div className="mt-4 text-sm text-gray-400">
-            Conversation id: <span className="text-gray-200">{conversationId ?? "—"}</span>
-          </div> */}
+         
         </div>
+         <div className="mt-4 flex justify-center">
+           <button
+              onClick={startNewConversation}
+              className="px-6 py-3 bg-blue-700 hover:bg-blue-600 rounded-full text-sm"
+            >
+              Start New Conversation
+            </button>
+         </div>
       </div>
     </div>
   );

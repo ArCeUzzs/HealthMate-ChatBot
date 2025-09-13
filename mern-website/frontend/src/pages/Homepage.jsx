@@ -423,51 +423,43 @@ const Homepage = () => {
                     </div>
                   )}
                   {!isRecording && audioUrl && (
-                    <div className="w-full">
-                      <div className="flex items-center justify-center gap-4 mb-4">
-                        {/* Play Button */}
-                        <button
-                          onClick={togglePlay}
-                          className="flex items-center justify-center w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all duration-300 shadow-lg"
-                        >
-                          {isPlaying ? (
-                            <Pause className="h-6 w-6" />
-                          ) : (
-                            <Play className="h-6 w-6" />
-                          )}
-                        </button>
+                   <div className="w-full">
+  {/* Buttons row */}
+  <div className="flex items-center justify-center gap-6 mb-4">
+    {/* Play Button */}
+    <button
+      onClick={togglePlay}
+      className="flex items-center justify-center w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all duration-300 shadow-lg"
+    >
+      {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+    </button>
 
-                        {/* Remove Button + Waveform */}
-                        <div className="flex flex-col items-center w-full gap-2">
-                          <button
-                            onClick={removeAudio}
-                            disabled={isAnalyzing}
-                            className={`flex items-center justify-center w-16 h-16 rounded-full ${
-                              isAnalyzing
-                                ? "bg-gray-500 cursor-not-allowed opacity-50"
-                                : "bg-gray-700 hover:bg-gray-800"
-                            } text-white transition-all duration-300 shadow-lg`}
-                          >
-                            🗑
-                          </button>
+    {/* Remove Button */}
+    <button
+      onClick={removeAudio}
+      disabled={isAnalyzing}
+      className={`flex items-center justify-center w-16 h-16 rounded-full ${
+        isAnalyzing
+          ? "bg-gray-500 cursor-not-allowed opacity-50"
+          : "bg-gray-700 hover:bg-gray-800"
+      } text-white transition-all duration-300 shadow-lg`}
+    >
+      🗑
+    </button>
+  </div>
 
-                          <div className="bg-gray-800/50 rounded-lg p-4 shadow-inner w-full">
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="text-gray-300 text-sm">
-                                Recorded Audio
-                              </span>
-                              <span className="text-gray-400 text-sm">
-                                {formatTime(recordingTime)}
-                              </span>
-                            </div>
-                            <div
-                              ref={waveformContainerRef}
-                              className="w-full h-14"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+  {/* Waveform Section */}
+  <div className="bg-gray-800/50 rounded-lg p-4 shadow-inner w-full">
+    <div className="flex items-center justify-between mb-3">
+      <span className="text-gray-300 text-sm">Recorded Audio</span>
+      <span className="text-gray-400 text-sm">
+        {formatTime(recordingTime)}
+      </span>
+    </div>
+    <div ref={waveformContainerRef} className="w-full h-14" />
+  </div>
+</div>
+
                   )}
 
                   {isRecording && (
