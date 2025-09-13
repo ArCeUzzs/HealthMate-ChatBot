@@ -1,0 +1,458 @@
+// AnalysisPage.jsx
+import React, { useEffect, useRef, useState } from "react";
+import WaveSurfer from "wavesurfer.js";
+import { Play, Pause, CheckCircle, Mic, MicOff, Loader } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
+
+export default function AnalysisPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const {
+    result,
+    audioUrl,
+    conversation_id: initialConversationId,
+    messages: initialMessages,
+  } = location.state || {};
+
+  // Keep conversation id in state for the session (not in localStorage)
+  const [conversationId, setConversationId] = useState(initialConversationId || null);
+
+  const [messages, setMessages] = useState(initialMessages || []);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [userAudioBlob, setUserAudioBlob] = useState(null);
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState("");
+  const [audioLevel, setAudioLevel] = useState(0);
+
+  const mediaRecorderRef = useRef(null);
+  const streamRef = useRef(null);
+  const timerRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const animationFrameRef = useRef(null);
+
+  // wavesurfer instances per assistant message index
+  const waveSurferMap = useRef({});
+  const waveContainerRefs = useRef({});
+  const waveReadyMap = useRef({});
+  const [playingIndex, setPlayingIndex] = useState(null);
+
+  // keep track of created blob urls to revoke on unmount
+  const createdBlobUrlsRef = useRef([]);
+
+  const messagesEndRef = useRef(null);
+
+  // if user navigated here without result, redirect home
+  useEffect(() => {
+    if (!result) {
+      navigate("/", { replace: true });
+      return;
+    }
+    setTimeout(() => scrollToBottom(), 200);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // cleanup on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(waveSurferMap.current).forEach((ws) => {
+        try { ws.destroy(); } catch {}
+      });
+      (createdBlobUrlsRef.current || []).forEach((u) => {
+        try { URL.revokeObjectURL(u); } catch {}
+      });
+    };
+  }, []);
+
+  // when messages change, scroll and init waves where containers exist
+  useEffect(() => {
+    scrollToBottom();
+
+    messages.forEach((m, idx) => {
+      const assistantAudio = m.assistant_audio ?? m.doctor_voice_url ?? null;
+      if (m.role === "assistant" && assistantAudio && !waveSurferMap.current[idx]) {
+        const container = waveContainerRefs.current[idx];
+        if (container) initWaveForMessage(idx, assistantAudio, container);
+      }
+    });
+  }, [messages]);
+
+  const initWaveForMessage = (idx, src, containerEl) => {
+    if (!containerEl) return;
+    if (waveSurferMap.current[idx]) {
+      try { waveSurferMap.current[idx].destroy(); } catch {}
+    }
+
+    const ws = WaveSurfer.create({
+      container: containerEl,
+      waveColor: "#22c55e",
+      progressColor: "#10b981",
+      cursorColor: "#fff",
+      height: 56,
+      barWidth: 3,
+      responsive: true,
+      normalize: true,
+    });
+
+    waveReadyMap.current[idx] = false;
+    ws.on("ready", () => { waveReadyMap.current[idx] = true; });
+    ws.on("finish", () => { setPlayingIndex(null); });
+
+    try {
+      ws.load(src);
+      waveSurferMap.current[idx] = ws;
+    } catch (e) {
+      console.warn("WaveSurfer load failed for message", idx, e);
+      try { ws.destroy(); } catch {}
+      waveSurferMap.current[idx] = null;
+    }
+  };
+
+  const attachWaveContainer = (idx) => (el) => {
+    if (el) {
+      waveContainerRefs.current[idx] = el;
+      const m = messages[idx];
+      const src = m?.assistant_audio ?? m?.doctor_voice_url ?? null;
+      if (src && !waveSurferMap.current[idx]) {
+        initWaveForMessage(idx, src, el);
+      }
+    } else {
+      if (waveSurferMap.current[idx]) {
+        try { waveSurferMap.current[idx].destroy(); } catch {}
+        waveSurferMap.current[idx] = null;
+      }
+      delete waveContainerRefs.current[idx];
+      delete waveReadyMap.current[idx];
+    }
+  };
+
+  const togglePlayForIndex = (idx) => {
+    const ws = waveSurferMap.current[idx];
+    if (ws && waveReadyMap.current[idx]) {
+      if (ws.isPlaying()) {
+        ws.pause();
+        setPlayingIndex(null);
+      } else {
+        Object.entries(waveSurferMap.current).forEach(([k, inst]) => {
+          if (inst && inst.isPlaying && inst.isPlaying() && k !== String(idx)) {
+            try { inst.pause(); } catch {}
+          }
+        });
+        ws.play();
+        setPlayingIndex(idx);
+      }
+    } else {
+      const container = waveContainerRefs.current[idx];
+      if (!container) return;
+      const audioEl = container.querySelector("audio");
+      if (audioEl) {
+        if (!audioEl.paused) {
+          audioEl.pause();
+          setPlayingIndex(null);
+        } else {
+          document.querySelectorAll("audio").forEach((a) => {
+            try { if (!a.paused) a.pause(); } catch {}
+          });
+          audioEl.play();
+          setPlayingIndex(idx);
+          audioEl.onended = () => setPlayingIndex(null);
+        }
+      }
+    }
+  };
+
+  // audio input visualizer
+  const visualizeAudio = () => {
+    if (!analyserRef.current) return;
+    const bufferLength = analyserRef.current.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const draw = () => {
+      animationFrameRef.current = requestAnimationFrame(draw);
+      analyserRef.current.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+      const avg = sum / bufferLength;
+      setAudioLevel(Math.min(1, avg / 128));
+    };
+    draw();
+  };
+
+  // recording logic (same pattern as homepage)
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      source.connect(analyserRef.current);
+      analyserRef.current.fftSize = 256;
+
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      const chunks = [];
+      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "audio/wav" });
+        setUserAudioBlob(blob);
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setIsPaused(false);
+      setRecordingTime(0);
+
+      visualizeAudio();
+      timerRef.current = setInterval(() => setRecordingTime((p) => p + 1), 1000);
+    } catch (err) {
+      console.error("microphone error:", err);
+      setError("Microphone access denied. Please enable microphone permissions.");
+    }
+  };
+
+  const pauseRecording = () => {
+    if (!mediaRecorderRef.current) return;
+    if (isPaused) {
+      mediaRecorderRef.current.resume();
+      setIsPaused(false);
+      visualizeAudio();
+    } else {
+      mediaRecorderRef.current.pause();
+      setIsPaused(true);
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      setAudioLevel(0);
+    }
+  };
+
+  const stopRecording = () => {
+    if (!mediaRecorderRef.current || !isRecording) return;
+    mediaRecorderRef.current.stop();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    setIsRecording(false);
+    setIsPaused(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    setAudioLevel(0);
+  };
+
+  const scrollToBottom = () => {
+    try {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    } catch {}
+  };
+
+  // Send user audio follow-up to proxy which forwards to fastapi
+  const sendUserAudio = async () => {
+    if (!userAudioBlob) {
+      setError("Record something before sending.");
+      return;
+    }
+    setIsSending(true);
+    setError("");
+    try {
+      const formData = new FormData();
+      formData.append("audio", userAudioBlob, "reply.wav");
+      if (conversationId) formData.append("conversation_id", conversationId);
+
+      // proxy endpoint
+      const resp = await fetch("http://localhost:5000/api/analyze", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!resp.ok) throw new Error(`Server: ${resp.status}`);
+      const data = await resp.json();
+
+      // update local conversation id if server returns one (it will)
+      if (data.conversation_id) {
+        setConversationId(data.conversation_id);
+      }
+
+      if (data.messages && Array.isArray(data.messages)) {
+        setMessages(data.messages);
+      } else {
+        // fallback local append
+        const userBlobUrl = URL.createObjectURL(userAudioBlob);
+        createdBlobUrlsRef.current.push(userBlobUrl);
+        setMessages((cur) => [
+          ...cur,
+          { role: "user", content: data.speech_to_text ?? data.user_text ?? "", user_audio: userBlobUrl },
+          { role: "assistant", content: data.doctor_response ?? "", assistant_audio: data.doctor_voice_url ?? null },
+        ]);
+      }
+
+      setUserAudioBlob(null);
+      setRecordingTime(0);
+    } catch (err) {
+      console.error("send error:", err);
+      setError("Failed to send audio. Check server and try again.");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  // Start new conversation: confirm, call backend reset, navigate home (client-side state not persisted)
+  const startNewConversation = async () => {
+    const confirmReset = window.confirm(
+      "Are you sure you want to start a new conversation? This will clear the current chat history."
+    );
+    if (!confirmReset) return;
+
+    try {
+      if (conversationId) {
+        // use proxy to forward reset to FastAPI
+        await fetch(`http://localhost:5000/reset/${conversationId}`, { method: "POST" });
+      }
+    } catch (e) {
+      console.warn("reset failed", e);
+    } finally {
+      // navigate home — do not store conversationId anywhere; homepage shows blank UI
+      navigate("/", { replace: true, state: { startNew: true } });
+    }
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // render messages with audio + waveform container
+  const renderMessage = (msg, idx) => {
+    const role = msg.role;
+    const content = msg.content ?? msg.text ?? "";
+    const userAudio = msg.user_audio ?? msg.local_user_audio ?? null;
+    const assistantAudio = msg.assistant_audio ?? msg.doctor_voice_url ?? null;
+
+    if (role === "user") {
+      return (
+        <div key={idx} className="mb-4 text-left">
+          <div className="text-sm text-gray-400 mb-1">You</div>
+          <div className="bg-gray-800/60 p-3 rounded-lg text-gray-100 max-w-3xl">
+            <div className="whitespace-pre-wrap">{content}</div>
+            {userAudio && <audio controls src={userAudio} className="w-full mt-3" />}
+          </div>
+        </div>
+      );
+    } else if (role === "assistant") {
+      return (
+        <div key={idx} className="mb-6 text-left">
+          <div className="text-sm text-gray-400 mb-1">Doctor</div>
+          <div className="bg-gray-900 p-4 rounded-lg text-gray-100 max-w-3xl">
+            <div className="whitespace-pre-wrap mb-4">{content}</div>
+
+            {assistantAudio && (
+              <>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm text-gray-300">Doctor's Response</div>
+                  <button
+                    onClick={() => togglePlayForIndex(idx)}
+                    className="inline-flex items-center gap-2 px-3 py-1 bg-green-600 hover:bg-green-700 rounded-full text-white text-sm"
+                  >
+                    {playingIndex === idx ? <><Pause className="h-4 w-4" /> Pause</> : <><Play className="h-4 w-4" /> Play</>}
+                  </button>
+                </div>
+
+                <div className="bg-gray-800/60 rounded-md p-2">
+                  <div ref={attachWaveContainer(idx)} className="w-full h-14">
+                    {/* fallback audio tag */}
+                    <audio controls src={assistantAudio} className="w-full" />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div className="min-h-screen bg-black text-white py-10 px-4">
+      <div className="max-w-4xl mx-auto bg-gray-900/70 rounded-xl p-6 sm:p-8 border border-green-500 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="h-6 w-6 text-green-400" />
+            <h1 className="text-xl font-semibold">Analysis Report</h1>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button onClick={() => navigate(-1)} className="px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded-full text-sm">Back</button>
+            <button onClick={startNewConversation} className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-full text-sm">Start New</button>
+          </div>
+        </div>
+
+        {/* Chat history */}
+        <div className="space-y-3 max-h-[55vh] overflow-y-auto mb-4 px-1">
+          {messages && messages.length ? messages.map((m, i) => renderMessage(m, i)) : (
+            <div className="text-gray-400">No conversation yet.</div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Error */}
+        {error && <div className="mb-3 text-red-400">{error}</div>}
+
+        {/* Recorder */}
+        <div className="bg-gray-800/50 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <Mic className="h-5 w-5 text-green-400" />
+              <div>
+                <div className="text-sm text-gray-300">Record your reply</div>
+                <div className="text-xs text-gray-400">Send follow-up voice messages to continue the conversation</div>
+              </div>
+            </div>
+            <div className="text-sm text-gray-300">{formatTime(recordingTime)}</div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {!isRecording && (
+              <button onClick={startRecording} className="w-12 h-12 rounded-full bg-green-600 hover:bg-green-700 flex items-center justify-center">
+                <Mic className="h-5 w-5 text-white" />
+              </button>
+            )}
+
+            {isRecording && (
+              <>
+                <button onClick={stopRecording} className="w-12 h-12 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center">
+                  <MicOff className="h-5 w-5 text-white" />
+                </button>
+                <button onClick={pauseRecording} className="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center">
+                  {isPaused ? "▶" : "⏸"}
+                </button>
+              </>
+            )}
+
+            <div className="flex-1">
+              <div className="h-8 flex items-center gap-1">
+                {[...Array(20)].map((_, i) => (
+                  <div key={i} style={{ width: 4, height: `${6 + audioLevel * 30 * Math.abs(Math.sin(i / 3))}px` }} className="bg-green-500 rounded" />
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <button
+                onClick={sendUserAudio}
+                disabled={isSending || !userAudioBlob}
+                className={`px-4 py-2 rounded-lg ${isSending || !userAudioBlob ? "bg-gray-600 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}
+              >
+                {isSending ? <><Loader className="h-4 w-4 animate-spin inline mr-2" /> Sending...</> : "Send"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 text-sm text-gray-400">
+            Conversation id: <span className="text-gray-200">{conversationId ?? "—"}</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  );
+}
