@@ -1,7 +1,7 @@
 // AnalysisPage.jsx
 import React, { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
-import { Play, Pause, CheckCircle, Mic, MicOff, Loader } from "lucide-react";
+import { Play, Pause, CheckCircle, Mic, MicOff, Loader, Plus } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "../App.css";  // <-- Import your CSS here
 
@@ -28,6 +28,8 @@ export default function AnalysisPage() {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const [audioLevel, setAudioLevel] = useState(0);
+  const [image, setImage] = useState(null);
+
 
   // preview playback states
   const [previewUrl, setPreviewUrl] = useState("");
@@ -139,6 +141,23 @@ export default function AnalysisPage() {
         ws.destroy();
       } catch {}
       waveSurferMap.current[idx] = null;
+    }
+  };
+
+   const handleImageChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        setError("Image must be less than 10MB");
+        return;
+      }
+      if (!file.type.startsWith("image/")) {
+        setError("Please select a valid image file");
+        return;
+      }
+      setImage(file);
+      
+      setError("");
     }
   };
 
@@ -414,6 +433,8 @@ export default function AnalysisPage() {
 
       // Clean up preview & blob
       removeAudio();
+      setImage(null);
+
     } catch (err) {
       console.error("sendUserAudio error:", err);
       setError(
@@ -558,12 +579,8 @@ export default function AnalysisPage() {
         <div className="bg-gray-800/50 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
-              <Mic className="h-5 w-5 text-green-400" />
               <div>
-                <div className="text-sm text-gray-300">Record your reply</div>
-                <div className="text-xs text-gray-400">
-                  Send follow-up voice messages to continue the conversation
-                </div>
+                <div className="text-sm text-gray-300">Continue your conversation</div>
               </div>
             </div>
             <div className="text-sm text-gray-300">
@@ -572,7 +589,41 @@ export default function AnalysisPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            
+{/* Image Upload Button */}
+{!image && (
+  <label className="relative flex items-center justify-center w-12 h-12 rounded-lg cursor-pointer hover:border-green-500 transition border border-gray-600">
+    {/* Plus icon */}
+    <Plus className="w-6 h-6 text-gray-400" />
+
+    {/* Hidden file input */}
+    <input
+      type="file"
+      accept="image/*"
+      onChange={handleImageChange}
+      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+    />
+  </label>
+)}
+
+{/* If image is added, show a small preview instead of + icon */}
+{image && (
+  <div className="relative w-12 h-12">
+    <img
+      src={URL.createObjectURL(image)}
+      alt="Preview"
+      className="w-12 h-12 rounded-lg object-cover"
+    />
+    {/* Remove button */}
+    <button
+      onClick={() => setImage(null)}
+      className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-2 text-xs"
+    >
+      ✕
+    </button>
+  </div>
+)}
+
+
             {!isRecording && (
               <button
                 onClick={startRecording}
