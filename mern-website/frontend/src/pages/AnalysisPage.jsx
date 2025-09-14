@@ -50,9 +50,9 @@ export default function AnalysisPage() {
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
   // Map of pre-fetched audio HTML elements by message idx
-const audioElementMap = useRef({});
-// Map of blob URLs created for fetched audio so we can revoke later
-const blobUrlMap = useRef({});
+  const audioElementMap = useRef({});
+  // Map of blob URLs created for fetched audio so we can revoke later
+  const blobUrlMap = useRef({});
 
   // wavesurfer instances per assistant message index
   const waveSurferMap = useRef({});
@@ -79,103 +79,109 @@ const blobUrlMap = useRef({});
   }, []);
 
   // cleanup on unmount
-useEffect(() => {
-  return () => {
-    // destroy wavesurfer instances
-    Object.values(waveSurferMap.current).forEach((ws) => {
-      try { ws.destroy(); } catch {}
-    });
+  useEffect(() => {
+    return () => {
+      // destroy wavesurfer instances
+      Object.values(waveSurferMap.current).forEach((ws) => {
+        try {
+          ws.destroy();
+        } catch {}
+      });
 
-    // revoke blobs
-    Object.values(blobUrlMap.current).forEach((u) => {
-      try { URL.revokeObjectURL(u); } catch {}
-    });
-  };
-}, []);
+      // revoke blobs
+      Object.values(blobUrlMap.current).forEach((u) => {
+        try {
+          URL.revokeObjectURL(u);
+        } catch {}
+      });
+    };
+  }, []);
 
   // when messages change, scroll and init waves where containers exist
-useEffect(() => {
-  scrollToBottom();
-  messages.forEach((m, idx) => {
-    const assistantAudio = m.assistant_audio ?? m.doctor_voice_url ?? null;
-    if (m.role === "assistant" && assistantAudio) {
-      // prefetch blobUrl, then init wavesurfer using the blob URL
-      prefetchAssistantAudio(idx, assistantAudio)
-        .then((blobUrl) => {
-          const container = waveContainerRefs.current[idx];
-          if (container && !waveSurferMap.current[idx]) {
-            initWaveForMessage(idx, blobUrl ?? assistantAudio, container);
-          }
-        })
-        .catch(() => {});
-    }
-  });
-}, [messages]);
+  useEffect(() => {
+    scrollToBottom();
+    messages.forEach((m, idx) => {
+      const assistantAudio = m.assistant_audio ?? m.doctor_voice_url ?? null;
+      if (m.role === "assistant" && assistantAudio) {
+        // prefetch blobUrl, then init wavesurfer using the blob URL
+        prefetchAssistantAudio(idx, assistantAudio)
+          .then((blobUrl) => {
+            const container = waveContainerRefs.current[idx];
+            if (container && !waveSurferMap.current[idx]) {
+              initWaveForMessage(idx, blobUrl ?? assistantAudio, container);
+            }
+          })
+          .catch(() => {});
+      }
+    });
+  }, [messages]);
   // Prefetch audio URL -> blob -> create object URL & HTMLAudioElement
-// --- PREFETCH: fetch remote audio and create a blob URL (fast local src) ---
-const prefetchAssistantAudio = async (idx, url) => {
-  if (!url) return null;
-  // Already have blob url
-  if (blobUrlMap.current[idx]) return blobUrlMap.current[idx];
+  // --- PREFETCH: fetch remote audio and create a blob URL (fast local src) ---
+  const prefetchAssistantAudio = async (idx, url) => {
+    if (!url) return null;
+    // Already have blob url
+    if (blobUrlMap.current[idx]) return blobUrlMap.current[idx];
 
-  try {
-    const resp = await fetch(url, { mode: "cors" });
-    if (!resp.ok) throw new Error("prefetch failed: " + resp.status);
-    const blob = await resp.blob();
+    try {
+      const resp = await fetch(url, { mode: "cors" });
+      if (!resp.ok) throw new Error("prefetch failed: " + resp.status);
+      const blob = await resp.blob();
 
-    const blobUrl = URL.createObjectURL(blob);
-    blobUrlMap.current[idx] = blobUrl;
-    return blobUrl;
-  } catch (e) {
-    console.warn("prefetchAssistantAudio failed for idx", idx, e);
-    return null;
-  }
-};
+      const blobUrl = URL.createObjectURL(blob);
+      blobUrlMap.current[idx] = blobUrl;
+      return blobUrl;
+    } catch (e) {
+      console.warn("prefetchAssistantAudio failed for idx", idx, e);
+      return null;
+    }
+  };
 
-// --- INIT WAVESURFER: load the blob URL into wavesurfer (no separate audio element) ---
-const initWaveForMessage = async (idx, srcUrl, containerEl) => {
-  if (!containerEl) return;
-  // avoid recreating
-  if (waveSurferMap.current[idx]) return;
+  // --- INIT WAVESURFER: load the blob URL into wavesurfer (no separate audio element) ---
+  const initWaveForMessage = async (idx, srcUrl, containerEl) => {
+    if (!containerEl) return;
+    // avoid recreating
+    if (waveSurferMap.current[idx]) return;
 
-  // Create WaveSurfer with a stable config
-  const ws = WaveSurfer.create({
-    container: containerEl,
-    waveColor: "#22c55e",
-    progressColor: "#10b981",
-    cursorColor: "#ffffff",
-    height: 56,
-    barWidth: 3,
-    responsive: true,
-    normalize: true,
-    // keep backend default (WebAudio) — it will create its own media element from the blob URL
-  });
+    // Create WaveSurfer with a stable config
+    const ws = WaveSurfer.create({
+      container: containerEl,
+      waveColor: "#22c55e",
+      progressColor: "#10b981",
+      cursorColor: "#ffffff",
+      height: 56,
+      barWidth: 3,
+      responsive: true,
+      normalize: true,
+      // keep backend default (WebAudio) — it will create its own media element from the blob URL
+    });
 
-  waveReadyMap.current[idx] = false;
+    waveReadyMap.current[idx] = false;
 
-  ws.on("ready", () => {
-    waveReadyMap.current[idx] = true;
-    // ready but do not autoplay — user toggles playback
-  });
+    ws.on("ready", () => {
+      waveReadyMap.current[idx] = true;
+      // ready but do not autoplay — user toggles playback
+    });
 
-  ws.on("finish", () => {
-    setPlayingIndex(null);
-  });
+    ws.on("finish", () => {
+      setPlayingIndex(null);
+    });
 
-  ws.on("error", (err) => {
-    console.warn("WaveSurfer error idx", idx, err);
-  });
+    ws.on("error", (err) => {
+      console.warn("WaveSurfer error idx", idx, err);
+    });
 
-  try {
-    // srcUrl should be a blob URL (prefetched). If not prefetched yet, use given srcUrl (remote) — still works.
-    ws.load(srcUrl);
-    waveSurferMap.current[idx] = ws;
-  } catch (e) {
-    console.warn("WaveSurfer load failed for message", idx, e);
-    try { ws.destroy(); } catch {}
-    waveSurferMap.current[idx] = null;
-  }
-};
+    try {
+      // srcUrl should be a blob URL (prefetched). If not prefetched yet, use given srcUrl (remote) — still works.
+      ws.load(srcUrl);
+      waveSurferMap.current[idx] = ws;
+    } catch (e) {
+      console.warn("WaveSurfer load failed for message", idx, e);
+      try {
+        ws.destroy();
+      } catch {}
+      waveSurferMap.current[idx] = null;
+    }
+  };
 
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
@@ -214,57 +220,60 @@ const initWaveForMessage = async (idx, srcUrl, containerEl) => {
     }
   };
 
-// --- TOGGLE PLAY/PAUSE: control wavesurfer only (instant because src is a blob URL) ---
-const togglePlayForIndex = async (idx) => {
-  const ws = waveSurferMap.current[idx];
+  // --- TOGGLE PLAY/PAUSE: control wavesurfer only (instant because src is a blob URL) ---
+  const togglePlayForIndex = async (idx) => {
+    const ws = waveSurferMap.current[idx];
 
-  // If no wavesurfer for this idx, attempt to ensure it's created
-  if (!ws) {
-    const m = messages[idx];
-    const remoteSrc = m?.assistant_audio ?? m?.doctor_voice_url ?? null;
-    if (!remoteSrc) return;
-    // prefetch and init then return (user can click again)
-    const blobUrl = await prefetchAssistantAudio(idx, remoteSrc);
-    const container = waveContainerRefs.current[idx];
-    if (container) {
-      await initWaveForMessage(idx, blobUrl ?? remoteSrc, container);
+    // If no wavesurfer for this idx, attempt to ensure it's created
+    if (!ws) {
+      const m = messages[idx];
+      const remoteSrc = m?.assistant_audio ?? m?.doctor_voice_url ?? null;
+      if (!remoteSrc) return;
+      // prefetch and init then return (user can click again)
+      const blobUrl = await prefetchAssistantAudio(idx, remoteSrc);
+      const container = waveContainerRefs.current[idx];
+      if (container) {
+        await initWaveForMessage(idx, blobUrl ?? remoteSrc, container);
+      }
+      return;
     }
-    return;
-  }
 
-  // If ws exists but not yet ready, avoid trying to play until ready
-  if (!waveReadyMap.current[idx]) {
-    // Optionally: queue a one-time 'ready' action
-    ws.once && ws.once("ready", () => {
-      try {
-        if (ws.isPlaying()) ws.pause();
-        else ws.play();
-        setPlayingIndex(idx);
-      } catch (e) {}
+    // If ws exists but not yet ready, avoid trying to play until ready
+    if (!waveReadyMap.current[idx]) {
+      // Optionally: queue a one-time 'ready' action
+      ws.once &&
+        ws.once("ready", () => {
+          try {
+            if (ws.isPlaying()) ws.pause();
+            else ws.play();
+            setPlayingIndex(idx);
+          } catch (e) {}
+        });
+      return;
+    }
+
+    // Pause any other playing waves
+    Object.entries(waveSurferMap.current).forEach(([k, inst]) => {
+      if (k !== String(idx) && inst && inst.isPlaying && inst.isPlaying()) {
+        try {
+          inst.pause();
+        } catch {}
+      }
     });
-    return;
-  }
 
-  // Pause any other playing waves
-  Object.entries(waveSurferMap.current).forEach(([k, inst]) => {
-    if (k !== String(idx) && inst && inst.isPlaying && inst.isPlaying()) {
-      try { inst.pause(); } catch {}
+    // Toggle
+    if (ws.isPlaying()) {
+      ws.pause();
+      setPlayingIndex(null);
+    } else {
+      try {
+        ws.play();
+        setPlayingIndex(idx);
+      } catch (e) {
+        console.warn("ws.play failed", e);
+      }
     }
-  });
-
-  // Toggle
-  if (ws.isPlaying()) {
-    ws.pause();
-    setPlayingIndex(null);
-  } else {
-    try {
-      ws.play();
-      setPlayingIndex(idx);
-    } catch (e) {
-      console.warn("ws.play failed", e);
-    }
-  }
-};
+  };
 
   // audio input visualizer
   const visualizeAudio = () => {
@@ -363,7 +372,7 @@ const togglePlayForIndex = async (idx) => {
   const scrollToBottom = () => {
     try {
       window.scrollTo({
-        top: document.body.scrollHeight,  
+        top: document.body.scrollHeight,
         behavior: "smooth",
         block: "end",
       });
@@ -574,7 +583,6 @@ const togglePlayForIndex = async (idx) => {
                   <div ref={attachWaveContainer(idx)} className="w-full h-14" />
 
                   {/* Fallback if WaveSurfer fails */}
-                  
                 </div>
               </>
             )}
@@ -601,7 +609,6 @@ const togglePlayForIndex = async (idx) => {
             >
               X
             </button>
-          
           </div>
         </div>
 
@@ -729,20 +736,30 @@ const togglePlayForIndex = async (idx) => {
                     <Play className="h-6 w-6" />
                   )}
                 </button>
-
-                <button>
-                  <button
-                    onClick={removeAudio}
-                    disabled={isSending}
-                    className={`flex items-center justify-center w-12 h-12 rounded-full ${
-                      isSending
-                        ? "bg-gray-500 cursor-not-allowed opacity-50"
-                        : "bg-gray-700 hover:bg-gray-800"
-                    } text-white transition-all duration-300 shadow-lg`}
-                  >
-                    🗑
-                  </button>
-                </button>
+                <button
+  onClick={removeAudio}
+  disabled={isSending}
+  className={`flex items-center justify-center w-12 h-12 rounded-full ${
+    isSending
+      ? "bg-gray-500 cursor-not-allowed opacity-50"
+      : "bg-gray-700 hover:bg-gray-800"
+  } text-white transition-all duration-300 shadow-lg`}
+>
+  🗑
+</button>
+{previewUrl && (
+  <audio
+    ref={audioPreviewRef}
+    src={previewUrl}
+    style={{ display: "none" }}
+    onPlay={() => setIsPreviewPlaying(true)}
+    onPause={() => setIsPreviewPlaying(false)}
+    onEnded={() => {
+      setIsPreviewPlaying(false);
+      setPreviewPlayed(true);
+    }}
+  />
+)}
 
                 <button
                   onClick={sendUserAudio}
@@ -765,28 +782,15 @@ const togglePlayForIndex = async (idx) => {
             </div>
           </div>
 
-          {/* hidden audio element for preview playback */}
-          {previewUrl && (
-            <audio
-              ref={audioPreviewRef}
-              src={previewUrl}
-              style={{ display: "none" }}
-              onEnded={() => {
-                setIsPreviewPlaying(false);
-                setPreviewPlayed(true);
-              }}
-            />
-          )}
-         
         </div>
-         <div className="mt-4 flex justify-center">
-           <button
-              onClick={startNewConversation}
-              className="px-6 py-3 bg-blue-700 hover:bg-blue-600 rounded-full text-sm"
-            >
-              Start New Conversation
-            </button>
-         </div>
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={startNewConversation}
+            className="px-6 py-3 bg-blue-700 hover:bg-blue-600 rounded-full text-sm"
+          >
+            Start New Conversation
+          </button>
+        </div>
       </div>
     </div>
   );
