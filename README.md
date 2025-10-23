@@ -68,6 +68,15 @@ HealthMate combines **state-of-the-art AI technologies** across multiple domains
 
 ## ⚙️ Architecture Overview
 
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   Backend API    │    │   AI Services   │
+│                 │    │                  │    │                 │
+│  React (Vite)   │◄──►│  FastAPI +       │◄──►│  Groq LLM       │
+│  Clerk Auth     │    │  Express.js      │    │  LangChain RAG  │
+│  Voice Recorder │    │  Socket.io       │    │  Whisper STT    │
+│  Image Upload   │    │  MongoDB         │    │  ElevenLabs TTS │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+
 ### 🧠 Core Workflow
 
 ```mermaid
