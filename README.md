@@ -70,40 +70,7 @@ HealthMate combines **state-of-the-art AI technologies** across multiple domains
 
 ## 🧠 System Architecture 
 
-```mermaid
-graph LR
-    subgraph "Frontend"
-        A1["React (Vite)"]
-        A2["Clerk Auth"]
-        A3["Voice Recorder"]
-        A4["Image Upload"]
-    end
 
-    subgraph "Backend_API"
-        B1["FastAPI"]
-        B2["Express.js"]
-        B3["Socket.io"]
-        B4["MongoDB"]
-    end
-
-    subgraph "AI_Services"
-        C1["Groq LLM"]
-        C2["LangChain RAG"]
-        C3["Whisper STT"]
-        C4["ElevenLabs TTS"]
-    end
-
-    A1 --> B1
-    A2 --> B1
-    A3 --> B2
-    A4 --> B2
-    B1 --> C1
-    B2 --> C2
-    C1 --> C3
-    C1 --> C4
-
-
-### 🧠 Core Workflow
 
 ```mermaid
 graph TD
