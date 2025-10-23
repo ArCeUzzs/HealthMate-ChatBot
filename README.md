@@ -17,6 +17,19 @@
 
 ---
 
+---
+
+## 🎥 Demo Video
+
+<p align="center">
+  <a href="https://youtu.be/r0YPsOrYC4s" target="_blank">
+    <img src="https://img.youtube.com/vi/r0YPsOrYC4s/0.jpg" alt="HealthMate Demo Video" width="70%" style="border-radius:10px;">
+  </a>
+</p>
+
+> 🎬 *Watch the full demo on YouTube to see HealthMate in action!*
+
+
 ## 🌟 Introduction
 
 **HealthMate** is a voice- and image-driven **AI medical chatbot** built to make healthcare guidance **accessible, empathetic, and conversational**.  
