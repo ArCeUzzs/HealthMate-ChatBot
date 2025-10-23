@@ -69,3 +69,4 @@ graph TD
     F --> H[Doctor Response Visualization]
     I[Image Upload] --> J[CLIP/ViT Analysis]
     J --> D
+
