@@ -60,13 +60,14 @@ HealthMate combines **state-of-the-art AI technologies** across multiple domains
 
 ```mermaid
 graph TD
-    A[User Voice/Text Input] --> B[Whisper STT]
-    B --> C[Groq LLM + LangChain RAG]
-    C --> D[Diagnosis + Recommendations]
-    D --> E[FastAPI/Express Middleware]
-    E --> F[Frontend UI (React)]
-    F --> G[Text & Voice Output]
-    F --> H[Doctor Response Visualization]
-    I[Image Upload] --> J[CLIP/ViT Analysis]
+    A["User Voice/Text Input"] --> B["Whisper STT"]
+    B --> C["Groq LLM + LangChain RAG"]
+    C --> D["Diagnosis + Recommendations"]
+    D --> E["FastAPI/Express Middleware"]
+    E --> F["Frontend UI (React)"]
+    F --> G["Text & Voice Output"]
+    F --> H["Doctor Response Visualization"]
+    I["Image Upload"] --> J["CLIP/ViT Analysis"]
     J --> D
+
 
